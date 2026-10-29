@@ -1,4 +1,3 @@
-
 [build]
   command = "echo Building Gmail API"
   publish = "."

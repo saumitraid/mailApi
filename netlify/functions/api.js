@@ -1,15 +1,12 @@
-const express=require('express');
-const nodemailer=require('nodemailer');
-const cors=require('cors');
-require("dotenv").config()
+const express = require("express");
+const nodemailer = require("nodemailer");
+const serverless = require("serverless-http");
+const cors = require("cors");
 
-const app=express();
+const app = express();
+
 app.use(cors());
-app.use(express.json());
-
-app.get('/', (req,res)=>{
-    res.send('Hello');
-})
+app.use(express.json({ limit: "20kb" }));
 
 const transporter = nodemailer.createTransport({
     service: "gmail",
@@ -19,16 +16,23 @@ const transporter = nodemailer.createTransport({
     },
 });
 
-// Check Gmail SMTP connection
-app.get("/api/email-check", async (req, res) => {
+app.get("/", (req, res) => {
+    res.json({
+        success: true,
+        message: "Gmail Email API is running on Netlify",
+    });
+});
+
+app.get("/email-check", async (req, res) => {
     try {
         await transporter.verify();
-        res.status(200).json({
+
+        res.json({
             success: true,
             message: "Gmail SMTP connection successful",
         });
     } catch (error) {
-        console.error("SMTP verification failed:", error.message);
+        console.error("SMTP error:", error.message);
 
         res.status(500).json({
             success: false,
@@ -37,48 +41,30 @@ app.get("/api/email-check", async (req, res) => {
     }
 });
 
-// Send email API
-app.post("/api/send-email", async (req, res) => {
+app.post("/send-email", async (req, res) => {
     try {
-        const { to, subject, message } = req.body;
-
-        // Validate required fields
-        if (!to || !subject || !message) {
-            return res.status(400).json({
-                success: false,
-                message: "Recipient, subject and message are required",
-            });
-        }
-
-        // Basic email format validation
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const { to, subject, message } = req.body || {};
 
         if (
             typeof to !== "string" ||
             typeof subject !== "string" ||
             typeof message !== "string" ||
-            !emailRegex.test(to) ||
+            !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to.trim()) ||
             !subject.trim() ||
-            !message.trim() ||
-            subject.length > 200 ||
-            message.length > 10000
+            !message.trim()
         ) {
             return res.status(400).json({
                 success: false,
-                message: "Please provide valid email details",
+                message: "Valid recipient, subject and message are required",
             });
         }
 
-        const mailOptions = {
-            from: `"My Node API" <${process.env.GMAIL_USER}>`,
+        const info = await transporter.sendMail({
+            from: `"Gmail Email API" <${process.env.GMAIL_USER}>`,
             to: to.trim(),
             subject: subject.trim(),
             text: message,
-        };
-
-        const info = await transporter.sendMail(mailOptions);
-
-        console.log("Email sent:", info.messageId);
+        });
 
         return res.status(200).json({
             success: true,
@@ -86,15 +72,16 @@ app.post("/api/send-email", async (req, res) => {
             messageId: info.messageId,
         });
     } catch (error) {
-        console.error("Email sending failed:", error.message);
+        console.error("Email error:", error.message);
 
         return res.status(500).json({
             success: false,
-            message: "Unable to send email. Check server configuration.",
+            message: "Unable to send email",
         });
     }
 });
 
-
-const PORT=process.env.PORT;
-app.listen(PORT, ()=>console.log(`Server running port is ${PORT}`));
+// IMPORTANT: Export the Netlify function handler
+module.exports = {
+    handler: serverless(app),
+};
